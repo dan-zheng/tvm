@@ -30,6 +30,8 @@ class Tuner(object):
         self.best_flops = 0
         self.best_measure_pair = None
         self.best_iter = 0
+        # NOTE(dan-zheng): keep track of best raw cost, in addition to flops.
+        self.best_cost = 0
 
         # time to leave
         self.ttl = None
@@ -112,21 +114,43 @@ class Tuner(object):
             for k, (inp, res) in enumerate(zip(inputs, results)):
                 config = inp.config
                 if res.error_no == 0:
+                    # NOTE(dan-zheng): keep track of best cost.
+                    cost = np.mean(res.costs)
                     flops = inp.task.flop / np.mean(res.costs)
                     error_ct = 0
                 else:
+                    cost = 0
                     flops = 0
                     error_ct += 1
 
                 if flops > self.best_flops:
+                    self.best_cost = cost
                     self.best_flops = flops
                     self.best_config = config
                     self.best_measure_pair = (inp, res)
                     self.best_iter = i + k
 
-                logger.debug("No: %d\tGFLOPS: %.2f/%.2f\tresult: %s\t%s",
-                             i + k + 1, flops / 1e9, self.best_flops / 1e9,
+                # Old logging statement.
+                # logger.debug("No: %d\tGFLOPS: %.2f/%.2f\tresult: %s\t%s",
+                #              i + k + 1, flops / 1e9, self.best_flops / 1e9,
+                #              res, config)
+
+                # Log raw cost, in addition to flops.
+                logger.debug("No: %d\tGFLOPS: %.4f/%.4f\tcost: %.4f\tresult: %s\t%s",
+                             i + k + 1, flops / 1e9, self.best_flops / 1e9, self.best_cost,
                              res, config)
+
+                # logger.debug('BEST_FLOPS %.10f', self.best_flops / 1e9)
+
+                # if cost > self.best_cost:
+                #     self.best_cost = cost
+                #     self.best_flops = flops
+                #     self.best_config = config
+                #     self.best_measure_pair = (inp, res)
+                #     self.best_iter = i + k
+
+                # logger.debug("No: %d\tCOST: %.2f/%.2f\tresult: %s\t%s",
+                #              i + k + 1, cost, self.best_cost, res, config)
 
             i += len(results)
             self.ttl = min(early_stopping + self.best_iter, n_trial) - i

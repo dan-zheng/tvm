@@ -30,3 +30,9 @@ from .task import template, get_config, create, ConfigSpace, ConfigEntity, \
     DispatchContext, FallbackContext, ApplyHistoryBest as apply_history_best, \
     ApplyGraphBest as apply_graph_best
 from .env import GLOBAL_SCOPE
+
+# NOTE(dan-zheng): Experiment with feature extractors in feature.py.
+# itervar: engineered iteration variable features (loop length, annotation).
+# knob: flattened ConfigSpace.
+# curve: sampled curve relations.
+from .feature import *

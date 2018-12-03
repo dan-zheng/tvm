@@ -49,6 +49,7 @@ def _linux_shared(output, objects, options, cc="g++"):
         cmd += objects
     if options:
         cmd += options
+    # print('COMPILATION COMMAND:', ' '.join(cmd))
     proc = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     (out, _) = proc.communicate()

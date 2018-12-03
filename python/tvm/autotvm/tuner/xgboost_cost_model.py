@@ -166,6 +166,10 @@ class XGBoostCostModel(CostModel):
         y_train = np.array(ys)
         y_max = np.max(y_train)
         y_train = y_train / max(y_max, 1e-8)
+        # print('XS', xs)
+        # print('YS', ys)
+        # print('X_TRAIN', x_train, x_train.shape)
+        # print('Y_TRAIN', y_train, y_train.shape)
 
         valid_index = y_train > 1e-6
         index = np.random.permutation(len(x_train))
@@ -206,6 +210,7 @@ class XGBoostCostModel(CostModel):
             if inp.task.name == self.task.name and \
                             inp.config.template_key == self.task.config_space.template_key:
                 data.append((inp, res))
+        # print('DATA', data)
 
         logger.debug("XGB load %d entries from history log file", len(data))
 
@@ -221,6 +226,7 @@ class XGBoostCostModel(CostModel):
         else:
             raise RuntimeError("Invalid feature type: " + self.fea_type)
         res = pool.map(feature_extract_func, data)
+        # print('RES', res)
 
         # filter out feature with different shapes
         fea_len = len(self._get_feature([0])[0])
@@ -262,6 +268,9 @@ class XGBoostCostModel(CostModel):
 
     def predict(self, xs, output_margin=False):
         feas = self._get_feature(xs)
+        # print('XGB COST MODEL PREDICT')
+        # print(feas)
+        # print(feas.shape)
         dtest = xgb.DMatrix(feas)
 
         if self.base_model:
