@@ -9,6 +9,8 @@
 #include <set>
 #include <algorithm>
 #include <cmath>
+// For debugging.
+#include <iostream>
 
 namespace tvm {
 namespace autotvm {
@@ -349,6 +351,23 @@ void GetItervarFeatureFlatten(Stmt stmt, bool take_log, std::vector<float> *ret_
   }
 }
 
+template <typename T>
+static void dump(std::string name, std::vector<T> vector) {
+  std::cout << "Dumping '" << name << "'" << std::endl;
+  for (auto x : vector) {
+    std::cout << x  << " ";
+  }
+  std::cout << std::endl;
+}
+
+// Curve sample configuration.
+enum CurveSampleConfig {
+  CountReuse,
+  CountReuseTopdown, // Original default.
+  CountReuseBottomUp,
+  CountReuseTopdownBottomUp,
+};
+
 /*!
  * \brief Get curve sample feature (relation feature) and flatten them into a one-dimensional vector.
  * \param stmt The statement to be extracted
@@ -450,18 +469,29 @@ void GetCurveSampleFeatureFlatten(Stmt stmt, int sample_n, std::vector<float> *r
     std::vector<double> &count = count_curve[k];
     std::vector<double> &reuse = reuse_curve[k];
     std::vector<double> &top_down = topdown_curve[k];
+    // NOTE(dan-zheng): Consider bottom_up curve.
+    // std::vector<double> &bottom_up = bottomup_curve[k];
 
     std::sort(count.begin(), count.end());
     std::sort(reuse.begin(), reuse.end());
     std::sort(top_down.begin(), top_down.end());
+    // std::sort(bottom_up.begin(), bottom_up.end());
 
     sample_curve(count, reuse, 1);
     sample_curve(reuse, count, 1);
     sample_curve(count, top_down, 1);
     sample_curve(top_down, count, 1);
-  }
-}
 
+    // TODO: Commit curve feature ablation experiments.
+    // sample_curve(count, reuse, 1);
+    // sample_curve(reuse, count, 1);
+    // sample_curve(count, top_down, 1);
+    // sample_curve(top_down, count, 1);
+  }
+
+  // std::cout << "'sample_n' value: " << sample_n << std::endl;
+  // dump("ret_feature", *ret_feature);
+}
 
 // register API for front end
 TVM_REGISTER_API("autotvm.feature.GetItervarFeature")
@@ -494,10 +524,12 @@ TVM_REGISTER_API("autotvm.feature.GetItervarFeatureFlatten")
 TVM_REGISTER_API("autotvm.feature.GetCurveSampleFeatureFlatten")
 .set_body([](TVMArgs args, TVMRetValue *ret) {
   Stmt stmt = args[0];
-  bool take_log = args[1];
+  // NOTE(dan-zheng): `bool` is a bug that forces `sample_n` to 1.
+  // bool sample_n = args[1];
+  int sample_n = args[1];
   std::vector<float> ret_feature;
 
-  GetCurveSampleFeatureFlatten(stmt, take_log, &ret_feature);
+  GetCurveSampleFeatureFlatten(stmt, sample_n, &ret_feature);
 
   TVMByteArray arr;
   arr.size = sizeof(float) * ret_feature.size();
