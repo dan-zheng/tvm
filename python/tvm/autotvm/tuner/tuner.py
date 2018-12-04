@@ -1,6 +1,7 @@
 # pylint: disable=unused-argument, no-self-use, invalid-name
 """Base class of tuner"""
 import logging
+import time
 
 import numpy as np
 
@@ -101,14 +102,24 @@ class Tuner(object):
 
         GLOBAL_SCOPE.in_tuning = True
         i = error_ct = 0
+
+        logger.debug('TOTAL TRIAL COUNT = {}'.format(n_trial))
+        start_time = time.time()
         while i < n_trial:
+            logger.debug('TIME: {}, number of trials = {}'.format(time.time() - start_time, i))
+
             if not self.has_next():
                 break
 
             configs = self.next_batch(min(n_parallel, n_trial - i))
+            logger.debug('TIME: {}, get next batch count = {}'.format(time.time() - start_time, len(configs)))
 
             inputs = [MeasureInput(self.task.target, self.task, config) for config in configs]
+            logger.debug('TIME: {}, constructed inputs'.format(time.time() - start_time))
             results = measure_batch(inputs)
+            logger.debug('TIME: {}, measured batch'.format(time.time() - start_time))
+
+            # NOTE(dan-zheng): Configurations are logged at the end.
 
             # keep best config
             for k, (inp, res) in enumerate(zip(inputs, results)):
@@ -155,9 +166,12 @@ class Tuner(object):
             i += len(results)
             self.ttl = min(early_stopping + self.best_iter, n_trial) - i
 
+            logger.debug('TIME: {}, about to update'.format(time.time() - start_time))
             self.update(inputs, results)
+            logger.debug('TIME: {}, done update'.format(time.time() - start_time))
             for callback in callbacks:
                 callback(self, inputs, results)
+            logger.debug('TIME: {}, done callbacks'.format(time.time() - start_time))
 
             if i >= self.best_iter + early_stopping:
                 logger.debug("Early stopped. Best iter: %d.", self.best_iter)
