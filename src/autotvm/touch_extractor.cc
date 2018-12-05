@@ -351,23 +351,6 @@ void GetItervarFeatureFlatten(Stmt stmt, bool take_log, std::vector<float> *ret_
   }
 }
 
-template <typename T>
-static void dump(std::string name, std::vector<T> vector) {
-  std::cout << "Dumping '" << name << "'" << std::endl;
-  for (auto x : vector) {
-    std::cout << x  << " ";
-  }
-  std::cout << std::endl;
-}
-
-// Curve sample configuration.
-enum CurveSampleConfig {
-  CountReuse,
-  CountReuseTopdown, // Original default.
-  CountReuseBottomUp,
-  CountReuseTopdownBottomUp,
-};
-
 /*!
  * \brief Get curve sample feature (relation feature) and flatten them into a one-dimensional vector.
  * \param stmt The statement to be extracted
@@ -469,6 +452,154 @@ void GetCurveSampleFeatureFlatten(Stmt stmt, int sample_n, std::vector<float> *r
     std::vector<double> &count = count_curve[k];
     std::vector<double> &reuse = reuse_curve[k];
     std::vector<double> &top_down = topdown_curve[k];
+
+    std::sort(count.begin(), count.end());
+    std::sort(reuse.begin(), reuse.end());
+    std::sort(top_down.begin(), top_down.end());
+
+    sample_curve(count, reuse, 1);
+    sample_curve(reuse, count, 1);
+    sample_curve(count, top_down, 1);
+    sample_curve(top_down, count, 1);
+  }
+}
+
+template <typename T>
+static void dump(std::string name, std::vector<T> vector) {
+  std::cout << "Dumping '" << name << "'" << std::endl;
+  for (auto x : vector) {
+    std::cout << x  << " ";
+  }
+  std::cout << std::endl;
+}
+
+// Curve sample configuration.
+enum CurveSampleConfig {
+  CountReuse,
+  CountReuseTopdown, // Original default.
+  CountReuseBottomUp,
+  CountReuseTopdownBottomUp,
+};
+
+/*!
+ * \brief Get curve sample feature (relation feature) and flatten them into a one-dimensional vector.
+ * \param stmt The statement to be extracted
+ * \param sample_n The number of points used for sampling a curve (along one dimension)
+ * \param bool Whether take log for numerical feature
+ * \param ret_feature The buffer where the return value is stored.
+ */
+void GetCurveSampleFeatureFlattenFix(Stmt stmt, int sample_n, bool take_log, std::vector<float> *ret_feature) {
+  // extract touch feature
+  TouchExtractor touch_ext;
+  touch_ext.Analyze(stmt);
+
+  // sort according to order
+  std::vector<VarExpr> vars;
+  for (auto kv : touch_ext.itervar_map) {
+    vars.push_back(kv.first);
+  }
+  std::sort(vars.begin(), vars.end(), [&](const VarExpr &lhs, const VarExpr &rhs) -> bool {
+    return touch_ext.itervar_map[lhs].order < touch_ext.itervar_map[rhs].order;
+  });
+
+  int max_depth = 0;
+  std::map<TouchedBuffer, std::vector<double> > reuse_curve;
+  std::map<TouchedBuffer, std::vector<double> > count_curve;
+  std::map<TouchedBuffer, std::vector<double> > topdown_curve;
+  std::map<TouchedBuffer, std::vector<double> > bottomup_curve;
+  std::set<TouchedBuffer> innermost_buffers;
+  std::set<std::string> added;
+
+  // find maximum depth of loop nest
+  for (auto var : vars) {
+    ItervarFeature &fea = touch_ext.itervar_map[var];
+    max_depth = std::max(max_depth, fea.nest_level);
+  }
+
+  // mark inner most buffer
+  for (auto iter = vars.rbegin(); iter != vars.rend(); iter++) {
+    auto var = *iter;
+    ItervarFeature &fea = touch_ext.itervar_map[var];
+    if (fea.nest_level == max_depth) {
+      for (auto kv : fea.touch_feature) {
+        // delete buffer no (e.g. 'A_0' -> 'A', 'A_1' -> 'A')
+        std::string raw_name = kv.first.substr(0, kv.first.rfind("_"));
+
+        // delete memory scope (e.g. 'A.local' -> 'A', 'A.shared' -> 'A')
+        size_t pos = raw_name.find(".");
+        if (pos < kv.first.size())
+          raw_name = raw_name.substr(0, pos);
+
+        // If there are multiple innermost buffers that are derived from a same raw buffer
+        // We only record the last occurrence (note the `iter` is in reverse order)
+        // e.g. `A.local`, `A.shared` are derived from `A`, if they all occurred at the inner most
+        // level, we will only record the last occurrence,
+        if (added.find(raw_name) == added.end()) {
+          innermost_buffers.insert(kv.first);
+          added.insert(raw_name);
+        }
+      }
+    }
+  }
+
+  // pad the first point (zero) for all curves
+  for (auto buf : innermost_buffers) {
+    reuse_curve[buf].push_back(0);
+    count_curve[buf].push_back(0);
+    topdown_curve[buf].push_back(0);
+    bottomup_curve[buf].push_back(0);
+  }
+
+  // extract curves
+  for (auto var : vars) {
+    ItervarFeature &fea = touch_ext.itervar_map[var];
+    for (auto kv : fea.touch_feature) {
+      if (innermost_buffers.find(kv.first) != innermost_buffers.end()) {
+        reuse_curve[kv.first].emplace_back(std::log(kv.second.reuse) / std::log(2));
+        count_curve[kv.first].emplace_back(std::log(kv.second.count) / std::log(2));
+        topdown_curve[kv.first].emplace_back(std::log(fea.topdown_product) / std::log(2));
+        bottomup_curve[kv.first].emplace_back(std::log(fea.bottomup_product) / std::log(2));
+      }
+    }
+  }
+
+  // Transformation function: either identify function or performs log.
+  std::function<float(int64_t)> trans;
+  if (take_log) {
+    trans = [](int64_t x) {
+      if (x < 0)
+        return -std::log(-x+1) / std::log(2);
+      x = x + 1;
+      return std::log(x) / std::log(2);
+    };
+  } else {
+    trans = [](int64_t x) {
+      return x;
+    };
+  }
+
+  // sample relation in the curve
+  auto sample_curve = [&](const std::vector<double> &x, const std::vector<double> &y,
+                          double weight) {
+    for (int i = 0; i < sample_n; i++) {
+      double xx = i * weight;
+      for (int j = static_cast<int>(x.size()) - 1; j >= 0; j--) {
+        if (xx > x[j] - 1e-6) {
+          // ret_feature->emplace_back(y[j]);
+          // ret_feature->emplace_back(xx - x[j]);
+          ret_feature->emplace_back(trans(y[j]));
+          ret_feature->emplace_back(trans(xx - x[j]));
+          break;
+        }
+      }
+    }
+  };
+
+  // serialize to frontend
+  for (auto k : innermost_buffers) {
+    std::vector<double> &count = count_curve[k];
+    std::vector<double> &reuse = reuse_curve[k];
+    std::vector<double> &top_down = topdown_curve[k];
     // NOTE(dan-zheng): Consider bottom_up curve.
     // std::vector<double> &bottom_up = bottomup_curve[k];
 
@@ -524,12 +655,28 @@ TVM_REGISTER_API("autotvm.feature.GetItervarFeatureFlatten")
 TVM_REGISTER_API("autotvm.feature.GetCurveSampleFeatureFlatten")
 .set_body([](TVMArgs args, TVMRetValue *ret) {
   Stmt stmt = args[0];
+  bool take_log = args[1];
+  std::vector<float> ret_feature;
+
+  GetCurveSampleFeatureFlatten(stmt, take_log, &ret_feature);
+
+  TVMByteArray arr;
+  arr.size = sizeof(float) * ret_feature.size();
+  arr.data = reinterpret_cast<char *>(ret_feature.data());
+  *ret = arr;
+});
+
+
+TVM_REGISTER_API("autotvm.feature.GetCurveSampleFeatureFlattenFix")
+.set_body([](TVMArgs args, TVMRetValue *ret) {
+  Stmt stmt = args[0];
   // NOTE(dan-zheng): `bool` is a bug that forces `sample_n` to 1.
   // bool sample_n = args[1];
   int sample_n = args[1];
+  bool take_log = args[2];
   std::vector<float> ret_feature;
 
-  GetCurveSampleFeatureFlatten(stmt, sample_n, &ret_feature);
+  GetCurveSampleFeatureFlattenFix(stmt, sample_n, take_log, &ret_feature);
 
   TVMByteArray arr;
   arr.size = sizeof(float) * ret_feature.size();

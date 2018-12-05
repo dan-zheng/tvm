@@ -113,6 +113,9 @@ class XGBoostCostModel(CostModel):
             self.feature_extract_func = _extract_knob_feature_index
         elif feature_type == 'curve':
             self.feature_extract_func = _extract_curve_feature_index
+        # NOTE(dan-zheng): Fixed curve feature function.
+        elif feature_type == 'curve-fix':
+            self.feature_extract_func = _extract_curve_feature_fix_index
         else:
             raise RuntimeError("Invalid feature type " + feature_type)
 
@@ -223,6 +226,9 @@ class XGBoostCostModel(CostModel):
             feature_extract_func = _extract_knob_feature_log
         elif self.fea_type == 'curve':
             feature_extract_func = _extract_curve_feature_log
+        # NOTE(dan-zheng): Fixed curve feature function.
+        elif self.fea_type == 'curve-fix':
+            feature_extract_func = _extract_curve_feature_fix_log
         else:
             raise RuntimeError("Invalid feature type: " + self.fea_type)
         res = pool.map(feature_extract_func, data)
@@ -377,6 +383,32 @@ def _extract_curve_feature_log(arg):
     with inp.target:
         sch, args = inp.task.instantiate(config)
     fea = feature.get_buffer_curve_sample_flatten(sch, args, sample_n=20)
+    x = np.concatenate((fea, list(config.get_other_option().values())))
+
+    if res.error_no == 0:
+        y = inp.task.flop / np.mean(res.costs)
+    else:
+        y = 0.0
+    return x, y
+
+# NOTE(dan-zheng): Fixed curve feature function.
+def _extract_curve_feature_fix_index(index):
+    """extract sampled curve feature for an index in extract_space"""
+    config = _extract_space.get(index)
+    with _extract_target:
+        sch, args = _extract_task.instantiate(config)
+    fea = feature.get_buffer_curve_sample_flatten_fix(sch, args, sample_n=20)
+    fea = np.concatenate((fea, list(config.get_other_option().values())))
+    return np.array(fea)
+
+# NOTE(dan-zheng): Fixed curve feature function.
+def _extract_curve_feature_fix_log(arg):
+    """extract sampled curve feature for log items"""
+    inp, res = arg
+    config = inp.config
+    with inp.target:
+        sch, args = inp.task.instantiate(config)
+    fea = feature.get_buffer_curve_sample_flatten_fix(sch, args, sample_n=20)
     x = np.concatenate((fea, list(config.get_other_option().values())))
 
     if res.error_no == 0:

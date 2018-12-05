@@ -34,11 +34,15 @@ def ana_lower(sch, args,
 try:
     _get_buffer_curve_sample_flatten = get_global_func(
         "autotvm.feature.GetCurveSampleFeatureFlatten")
+    # NOTE(dan-zheng): Fixed custom curve sample function.
+    _get_buffer_curve_sample_flatten_fix = get_global_func(
+        "autotvm.feature.GetCurveSampleFeatureFlattenFix")
     _get_itervar_feature = get_global_func("autotvm.feature.GetItervarFeature")
     _get_itervar_feature_flatten = get_global_func("autotvm.feature.GetItervarFeatureFlatten")
 except ValueError as e:
     def raise_error(*args, **kwargs):  # pylint: disable=unused-argument
         raise RuntimeError("Cannot load autotvm c++ API")
+    _get_buffer_curve_sample_flatten_fix = raise_error
     _get_buffer_curve_sample_flatten = _get_itervar_feature = _get_itervar_feature_flatten = \
         raise_error
 
@@ -177,5 +181,29 @@ def get_buffer_curve_sample_flatten(sch, args, sample_n=30):
     """
     stmt = ana_lower(sch, args, simple_mode=True)
     feas = _get_buffer_curve_sample_flatten(stmt, sample_n, False)
+    feas = struct.unpack('%df' % (len(feas)//4), feas)
+    return feas
+
+def get_buffer_curve_sample_flatten_fix(sch, args, sample_n=30, take_log=True):
+    """
+    Get flatten curve sample feature (relation feature).
+
+    Parameters
+    ----------
+    sch: tvm.schedule.Schedule
+    args: Array of tvm.tensor.Tensor
+        The buffer arguments for lowering.
+    sample_n: int
+        Number of sample points along one dimension.
+    take_log: bool
+        Whether take log of numerical statistics.
+
+    Returns
+    -------
+    flatten_feature: np.ndarray
+        one-dimensional vector
+    """
+    stmt = ana_lower(sch, args, simple_mode=True)
+    feas = _get_buffer_curve_sample_flatten_fix(stmt, sample_n, take_log)
     feas = struct.unpack('%df' % (len(feas)//4), feas)
     return feas
