@@ -488,6 +488,7 @@ enum CurveSampleConfig {
  * \param bool Whether take log for numerical feature
  * \param ret_feature The buffer where the return value is stored.
  */
+// void GetCurveSampleFeatureFlattenFix(Stmt stmt, int sample_n, bool take_log, CurveSampleConfig config, std::vector<float> *ret_feature) {
 void GetCurveSampleFeatureFlattenFix(Stmt stmt, int sample_n, bool take_log, std::vector<float> *ret_feature) {
   // extract touch feature
   TouchExtractor touch_ext;
@@ -542,7 +543,7 @@ void GetCurveSampleFeatureFlattenFix(Stmt stmt, int sample_n, bool take_log, std
     }
   }
 
-  // pad the first point (zero) for all curves
+  // Pad the first point (zero) for all curves.
   for (auto buf : innermost_buffers) {
     reuse_curve[buf].push_back(0);
     count_curve[buf].push_back(0);
@@ -550,7 +551,7 @@ void GetCurveSampleFeatureFlattenFix(Stmt stmt, int sample_n, bool take_log, std
     bottomup_curve[buf].push_back(0);
   }
 
-  // extract curves
+  // Extract feature curves.
   for (auto var : vars) {
     ItervarFeature &fea = touch_ext.itervar_map[var];
     for (auto kv : fea.touch_feature) {
@@ -563,7 +564,7 @@ void GetCurveSampleFeatureFlattenFix(Stmt stmt, int sample_n, bool take_log, std
     }
   }
 
-  // Transformation function: either identify function or performs log.
+  // Transformation function: either identify function or log.
   std::function<float(int64_t)> trans;
   if (take_log) {
     trans = [](int64_t x) {
@@ -585,10 +586,10 @@ void GetCurveSampleFeatureFlattenFix(Stmt stmt, int sample_n, bool take_log, std
       double xx = i * weight;
       for (int j = static_cast<int>(x.size()) - 1; j >= 0; j--) {
         if (xx > x[j] - 1e-6) {
-          // ret_feature->emplace_back(y[j]);
-          // ret_feature->emplace_back(xx - x[j]);
-          ret_feature->emplace_back(trans(y[j]));
-          ret_feature->emplace_back(trans(xx - x[j]));
+          ret_feature->emplace_back(y[j]);
+          ret_feature->emplace_back(xx - x[j]);
+          // ret_feature->emplace_back(trans(y[j]));
+          // ret_feature->emplace_back(trans(xx - x[j]));
           break;
         }
       }
@@ -600,6 +601,13 @@ void GetCurveSampleFeatureFlattenFix(Stmt stmt, int sample_n, bool take_log, std
     std::vector<double> &count = count_curve[k];
     std::vector<double> &reuse = reuse_curve[k];
     std::vector<double> &top_down = topdown_curve[k];
+
+    /*
+    std::cout << "buffer: '" << k << "'" << std::endl;
+    dump("count_curve", count);
+    dump("reuse curve", reuse);
+    dump("topdown curve", top_down);
+    */
     // NOTE(dan-zheng): Consider bottom_up curve.
     // std::vector<double> &bottom_up = bottomup_curve[k];
 
@@ -608,16 +616,41 @@ void GetCurveSampleFeatureFlattenFix(Stmt stmt, int sample_n, bool take_log, std
     std::sort(top_down.begin(), top_down.end());
     // std::sort(bottom_up.begin(), bottom_up.end());
 
+    /*
     sample_curve(count, reuse, 1);
     sample_curve(reuse, count, 1);
     sample_curve(count, top_down, 1);
     sample_curve(top_down, count, 1);
+    */
 
-    // TODO: Commit curve feature ablation experiments.
+    // NOTE: Curve feature ablation experiments.
+    // Feature descriptions:
+    // - top_down: product of outer loop lengths.
+    // - bottom_up: product of inner loop lengths.
+    // - count: memory buffer touched element count.
+    // - reuse: memory buffer reuse ratio (top_down / count).
+
+    // Combination 1: count+reuse and reuse+count. Remove `top_down` for orthogonal features.
+    sample_curve(count, reuse, 1);
+    sample_curve(reuse, count, 1);
+
+    // Combination 2: count+reuse and count+bottom_up.
+    // sample_curve(count, reuse, 1);
+    // sample_curve(count, bottom_up, 1);
+
+    // Combination 3.
+    // sample_curve(count, reuse, 1);
+    // sample_curve(reuse, count, 1);
+    // sample_curve(count, bottom_up, 1);
+    // sample_curve(bottom_up, count, 1);
+
+    // Combination 4.
     // sample_curve(count, reuse, 1);
     // sample_curve(reuse, count, 1);
     // sample_curve(count, top_down, 1);
     // sample_curve(top_down, count, 1);
+    // sample_curve(count, bottom_up, 1);
+    // sample_curve(bottom_up, count, 1);
   }
 
   // std::cout << "'sample_n' value: " << sample_n << std::endl;
